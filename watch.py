@@ -7,6 +7,7 @@ seen) lives in state.json, which the workflow carries between runs via actions/c
   python watch.py                  # one pass over everything
   python watch.py --until 13:25    # poll Lazada every `interval_s` until 13:25 local
   python watch.py --test           # send a test Telegram message
+  python watch.py --demo           # dry run: send one sample of every alert type
 """
 import argparse
 import hashlib
@@ -138,6 +139,19 @@ def warn_once(state, key, text):
         telegram(text)
 
 
+def demo():
+    """Send one of each alert, built from live data, so you can see what they look like."""
+    telegram("🧪 <b>DRY RUN</b>: the next 3 messages are samples, nothing actually dropped.")
+    items = lazada_items(CONFIG["lazada"][0])
+    etb = next((i for i in items if "elite trainer" in i["name"].lower()), items[0])
+    alert_item(etb, "🧪 🟢 IN STOCK")
+    alert_item(items[-1], "🧪 🆕 NEW LISTING (sold out for now)")
+    page = CONFIG["pages"][0]
+    hit = next(l for l in page_lines(page["url"]) if re.search("reservation|queue", l, re.I))
+    telegram(f"<b>🧪 📣 {html.escape(page['name'])} updated</b>\n• {html.escape(hit[:200])}",
+             ("Open page", page["url"]))
+
+
 def load_state():
     try:
         return json.loads(STATE_FILE.read_text())
@@ -149,11 +163,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--until", help="keep polling Lazada until HH:MM local time")
     ap.add_argument("--test", action="store_true")
+    ap.add_argument("--demo", action="store_true")
     args = ap.parse_args()
 
     if args.test:
         telegram("✅ <b>Pokemon watcher connected</b>\nYou'll get drops here.",
                  ("Pokémon Store on Lazada", "https://www.lazada.sg/shop/pokemon-store-online-singapore/"))
+        return
+
+    if args.demo:
+        demo()
         return
 
     state = load_state()

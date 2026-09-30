@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "once | drop | test"
+        description: "once | drop | test | demo"
         default: once
 
 concurrency:
@@ -41,6 +41,7 @@ jobs:
           if [ "${{ github.event.schedule }}" = "40 4 * * *" ]; then MODE=drop; fi
           case "$MODE" in
             test) python watch.py --test ;;
+            demo) python watch.py --demo ;;
             drop) python watch.py --until 13:25 ;;
             *)    python watch.py ;;
           esac
