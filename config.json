@@ -1,0 +1,17 @@
+{
+  "timezone": "Asia/Singapore",
+  "interval_s": 20,
+
+  "lazada": [
+    { "shop": "pokemon-store-online-singapore", "seller": "Pokémon Store Online Singapore", "query": "30th" },
+    { "shop": "pokemon-store-online-singapore", "seller": "Pokémon Store Online Singapore", "query": "elite trainer box" }
+  ],
+
+  "pages": [
+    {
+      "name": "Pokémon Center SG (Jewel) shop page",
+      "url": "https://sg.portal-pokemon.com/shop/",
+      "keywords": ["reservation", "ballot", "queue", "registration", "lottery", "elite trainer", "30th"]
+    }
+  ]
+}

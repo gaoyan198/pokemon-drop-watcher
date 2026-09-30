@@ -1,0 +1,53 @@
+name: pokemon-watch
+
+on:
+  schedule:
+    - cron: "40 4 * * *"    # 12:40 SGT: start the lunchtime drop loop (GitHub cron can lag 5-15 min)
+    - cron: "0 */2 * * *"   # every 2h: quick sweep for off-schedule restocks + Jewel announcements
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "once | drop | test"
+        default: once
+
+concurrency:
+  group: pokemon-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Watch
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MODE="${{ inputs.mode }}"
+          if [ "${{ github.event.schedule }}" = "40 4 * * *" ]; then MODE=drop; fi
+          case "$MODE" in
+            test) python watch.py --test ;;
+            drop) python watch.py --until 13:25 ;;
+            *)    python watch.py ;;
+          esac
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: state-${{ github.run_id }}
