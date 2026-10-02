@@ -77,9 +77,6 @@ def lazada_items(search):
     return [i for i in items if i.get("sellerName") == search.get("seller", i.get("sellerName"))]
 
 
-FOUND = {}  # itemId -> latest listing, for the pinned `watch_items`
-
-
 def check_lazada(state):
     """One pass over every search. Returns False if any search failed (blocked/error)."""
     seen = state.setdefault("lazada", {})
@@ -106,8 +103,6 @@ def check_lazada(state):
         for it in items:
             iid, stock = str(it["itemId"]), bool(it.get("inStock"))
             in_stock += stock
-            if iid in CONFIG.get("watch_items", []):
-                FOUND[iid] = it
             prev = seen.get(iid)
             seen[iid] = stock
             if prev is None and fresh and stock and iid in CONFIG.get("watch_items", []):
@@ -128,6 +123,45 @@ def alert_item(it, headline):
     text = (f"<b>{headline}</b>\n{html.escape(it['name'])}\n"
             f"S${it.get('price')}  ·  {datetime.now(TZ):%H:%M:%S}")
     telegram(text, ("Open in Lazada ⚡", url))
+
+
+# ---------- pinned product pages ----------
+# The store search endpoint got captcha-blocked on 2026-10-02; product pages stayed open.
+
+def product_status(item_id):
+    """(name, in_stock, url) read from the product page. Raises if it has no stock data."""
+    url = f"https://www.lazada.sg/products/pdp-i{item_id}.html"
+    page = fetch(url, accept="text/html")
+    maxes = [int(m) for m in re.findall(r'"quantity":\{"limit":\{"max":(\d+)', page)]
+    title = re.search(r"<title>([^<|]*)", page)
+    if not maxes or not title:
+        raise RuntimeError("product page had no stock data (likely captcha/block)")
+    return html.unescape(title.group(1)).strip(), max(maxes) > 0, url
+
+
+def check_products(state):
+    """Check each pinned item's page. Returns {item_id: (name, in_stock)} for the ones that worked."""
+    seen = state.setdefault("products", {})
+    results = {}
+    for iid in CONFIG.get("watch_items", []):
+        try:
+            name, stock, url = product_status(iid)
+        except Exception as e:  # noqa: BLE001
+            log(f"product {iid}: {e}")
+            continue
+        results[iid] = (name, stock)
+        prev, seen[iid] = seen.get(iid), stock
+        log(f"product {iid}: {'IN STOCK' if stock else 'sold out'}")
+        if stock and not prev:
+            telegram(f"<b>🟢 IN STOCK</b>\n{html.escape(name)}\n{datetime.now(TZ):%H:%M:%S}",
+                     ("Open in Lazada ⚡", url))
+    return results
+
+
+def status_lines(results):
+    return "".join(f"\n• {html.escape(results[i][0][:90])}: {'IN STOCK' if results[i][1] else 'sold out'}"
+                   if i in results else f"\n• item {i}: CAN'T READ"
+                   for i in CONFIG.get("watch_items", []))
 
 
 # ---------- announcement pages ----------
@@ -217,29 +251,52 @@ def main():
 
     state = load_state()
     check_pages(state)
-    check_lazada(state)
+    results = check_products(state)
+    searches_ok = check_lazada(state)
     state["baselined"] = True
     STATE_FILE.write_text(json.dumps(state, indent=1))
+
+    pinned = CONFIG.get("watch_items", [])
+    seeing = (lambda r, s_ok: len(r) == len(pinned)) if pinned else (lambda r, s_ok: s_ok)
+    ever_ok = seeing(results, searches_ok)
 
     if args.until:
         h, m = map(int, args.until.split(":"))
         end = datetime.now(TZ).replace(hour=h, minute=m, second=0, microsecond=0)
         interval = CONFIG.get("interval_s", 20)
+        # Being blind must be loud: alert on going blind, repeat every 5 min, announce recovery.
+        blind_alerted = None
         if datetime.now(TZ) < end:
-            pinned = "".join(
-                f"\n• {html.escape(FOUND[i]['name'][:80])}: {'IN STOCK' if FOUND[i].get('inStock') else 'sold out'}"
-                if i in FOUND else f"\n• ⚠️ item {i} NOT FOUND in searches"
-                for i in CONFIG.get("watch_items", []))
-            telegram(f"👀 Watching Lazada every ~{interval}s until {args.until}{pinned}", silent=True)
+            if seeing(results, searches_ok):
+                telegram(f"👀 Watching every ~{interval}s until {args.until}{status_lines(results)}", silent=True)
+            else:
+                telegram(f"🔴 <b>BLIND</b>: Lazada is blocking the checks. Refresh the app yourself."
+                         f"{status_lines(results)}")
+                blind_alerted = time.time()
         # Back off when Lazada blocks us (double, capped), ease back toward the base rate once it recovers.
-        cur, cap = interval, CONFIG.get("max_interval_s", 60)
+        cur, cap, n = interval, CONFIG.get("max_interval_s", 60), 0
         while datetime.now(TZ) < end:
             time.sleep(cur + random.uniform(0, cur * 0.25))
-            prev, cur = cur, (max(interval, cur / 2) if check_lazada(state) else min(cur * 2, cap))
+            n += 1
+            results = check_products(state)
+            if not pinned or n % 6 == 0:  # searches are mostly blocked; don't let them slow pinned checks
+                searches_ok = check_lazada(state)
+            ok = seeing(results, searches_ok)
+            ever_ok |= ok
+            if not ok and (blind_alerted is None or time.time() - blind_alerted >= 300):
+                telegram(f"🔴 <b>BLIND</b>: Lazada is blocking the checks. Refresh the app yourself."
+                         f"{status_lines(results)}")
+                blind_alerted = time.time()
+            elif ok and blind_alerted is not None:
+                telegram(f"✅ Checks working again{status_lines(results)}")
+                blind_alerted = None
+            prev, cur = cur, (max(interval, cur / 2) if ok else min(cur * 2, cap))
             if cur != prev:
                 log(f"interval {prev:g}s -> {cur:g}s")
             STATE_FILE.write_text(json.dumps(state, indent=1))
 
+    if not ever_ok:
+        raise SystemExit("never got a successful check: Lazada is blocking us")
 
 if __name__ == "__main__":
     main()
