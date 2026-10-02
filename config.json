@@ -4,7 +4,10 @@
   "max_interval_s": 60,
   "drop_window": { "weekdays": [0, 1, 2, 3, 4], "start": "12:15", "end": "14:00" },
 
+  "watch_items": ["13858018841"],
+
   "lazada": [
+    { "shop": "pokemon-store-online-singapore", "seller": "Pokémon Store Online Singapore", "query": "" },
     { "shop": "pokemon-store-online-singapore", "seller": "Pokémon Store Online Singapore", "query": "30th" },
     { "shop": "pokemon-store-online-singapore", "seller": "Pokémon Store Online Singapore", "query": "elite trainer box" }
   ],

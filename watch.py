@@ -77,6 +77,9 @@ def lazada_items(search):
     return [i for i in items if i.get("sellerName") == search.get("seller", i.get("sellerName"))]
 
 
+FOUND = {}  # itemId -> latest listing, for the pinned `watch_items`
+
+
 def check_lazada(state):
     """One pass over every search. Returns False if any search failed (blocked/error)."""
     seen = state.setdefault("lazada", {})
@@ -92,14 +95,26 @@ def check_lazada(state):
             continue
         state.get("warned", {}).pop(f"lazada-error-{search['query']}", None)
 
+        # A search added since the last run: record its items quietly instead of
+        # announcing every one as new, but still shout if a pinned item is already up.
+        searched = state.setdefault("searched", [])
+        fresh = search["query"] not in searched
+        if fresh:
+            searched.append(search["query"])
+
         in_stock = 0
         for it in items:
             iid, stock = str(it["itemId"]), bool(it.get("inStock"))
             in_stock += stock
+            if iid in CONFIG.get("watch_items", []):
+                FOUND[iid] = it
             prev = seen.get(iid)
             seen[iid] = stock
-            if prev is None and not state.get("baselined"):
-                continue  # first ever run: record, don't spam
+            if prev is None and fresh and stock and iid in CONFIG.get("watch_items", []):
+                alert_item(it, "🎯 IN STOCK")
+                continue
+            if prev is None and (fresh or not state.get("baselined")):
+                continue  # first look at this search: record, don't spam
             if (prev is None or prev is False) and stock:
                 alert_item(it, "🟢 IN STOCK" if prev is False else "🆕 NEW + IN STOCK")
             elif prev is None:
@@ -211,7 +226,11 @@ def main():
         end = datetime.now(TZ).replace(hour=h, minute=m, second=0, microsecond=0)
         interval = CONFIG.get("interval_s", 20)
         if datetime.now(TZ) < end:
-            telegram(f"👀 Watching Lazada every ~{interval}s until {args.until}", silent=True)
+            pinned = "".join(
+                f"\n• {html.escape(FOUND[i]['name'][:80])}: {'IN STOCK' if FOUND[i].get('inStock') else 'sold out'}"
+                if i in FOUND else f"\n• ⚠️ item {i} NOT FOUND in searches"
+                for i in CONFIG.get("watch_items", []))
+            telegram(f"👀 Watching Lazada every ~{interval}s until {args.until}{pinned}", silent=True)
         # Back off when Lazada blocks us (double, capped), ease back toward the base rate once it recovers.
         cur, cap = interval, CONFIG.get("max_interval_s", 60)
         while datetime.now(TZ) < end:
