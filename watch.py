@@ -78,13 +78,17 @@ def lazada_items(search):
 
 
 def check_lazada(state):
+    """One pass over every search. Returns False if any search failed (blocked/error)."""
     seen = state.setdefault("lazada", {})
+    ok = True
     for search in CONFIG["lazada"]:
         try:
             items = lazada_items(search)
         except Exception as e:  # noqa: BLE001
+            ok = False
             log(f"lazada '{search['query']}': {e}")
-            warn_once(state, f"lazada-error-{search['query']}", f"⚠️ Lazada check failing: {e}")
+            warn_once(state, f"lazada-error-{search['query']}",
+                      f"⚠️ Lazada check failing: {e}\nSlowing down automatically, will speed back up when it recovers.")
             continue
         state.get("warned", {}).pop(f"lazada-error-{search['query']}", None)
 
@@ -101,6 +105,7 @@ def check_lazada(state):
             elif prev is None:
                 alert_item(it, "🆕 NEW LISTING (sold out for now)")
         log(f"lazada '{search['query']}': {len(items)} items, {in_stock} in stock")
+    return ok
 
 
 def alert_item(it, headline):
@@ -207,9 +212,13 @@ def main():
         interval = CONFIG.get("interval_s", 20)
         if datetime.now(TZ) < end:
             telegram(f"👀 Watching Lazada every ~{interval}s until {args.until}", silent=True)
+        # Back off when Lazada blocks us (double, capped), ease back toward the base rate once it recovers.
+        cur, cap = interval, CONFIG.get("max_interval_s", 60)
         while datetime.now(TZ) < end:
-            time.sleep(interval + random.uniform(0, interval * 0.25))
-            check_lazada(state)
+            time.sleep(cur + random.uniform(0, cur * 0.25))
+            prev, cur = cur, (max(interval, cur / 2) if check_lazada(state) else min(cur * 2, cap))
+            if cur != prev:
+                log(f"interval {prev:g}s -> {cur:g}s")
             STATE_FILE.write_text(json.dumps(state, indent=1))
 
 

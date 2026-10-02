@@ -1,6 +1,7 @@
 {
   "timezone": "Asia/Singapore",
   "interval_s": 10,
+  "max_interval_s": 60,
   "drop_window": { "weekdays": [0, 1, 2, 3, 4], "start": "12:15", "end": "14:00" },
 
   "lazada": [
