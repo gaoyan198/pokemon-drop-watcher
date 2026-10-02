@@ -128,15 +128,25 @@ def alert_item(it, headline):
 # ---------- pinned product pages ----------
 # The store search endpoint got captcha-blocked on 2026-10-02; product pages stayed open.
 
-def product_status(item_id):
-    """(name, in_stock, url) read from the product page. Raises if it has no stock data."""
+def product_status(item_id, confirm=3):
+    """(name, in_stock, url) read from the product page. Raises if it has no stock data.
+
+    Lazada's edge sometimes serves a stale copy rendered while the item was still
+    buyable ("max":5, Add to Cart, no "Out of stock") - about 1 in 4 responses on
+    2026-10-02, after it had sold out. So "in stock" needs `confirm` fetches in a row.
+    """
     url = f"https://www.lazada.sg/products/pdp-i{item_id}.html"
-    page = fetch(url, accept="text/html")
-    maxes = [int(m) for m in re.findall(r'"quantity":\{"limit":\{"max":(\d+)', page)]
-    title = re.search(r"<title>([^<|]*)", page)
-    if not maxes or not title:
-        raise RuntimeError("product page had no stock data (likely captcha/block)")
-    return html.unescape(title.group(1)).strip(), max(maxes) > 0, url
+    for _ in range(confirm):
+        page = fetch(url, accept="text/html")
+        maxes = [int(m) for m in re.findall(r'"quantity":\{"limit":\{"max":(\d+)', page)]
+        title = re.search(r"<title>([^<|]*)", page)
+        if not maxes or not title:
+            raise RuntimeError("product page had no stock data (likely captcha/block)")
+        name = html.unescape(title.group(1)).strip()
+        if "Out of stock" in page or max(maxes) == 0:
+            return name, False, url
+        time.sleep(0.5)
+    return name, True, url
 
 
 def check_products(state):
@@ -233,6 +243,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--until", help="keep polling Lazada until HH:MM local time")
     ap.add_argument("--auto", action="store_true", help="poll until drop_window ends if inside it")
+    ap.add_argument("--no-search", action="store_true", help="only check pinned product pages")
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--demo", action="store_true")
     args = ap.parse_args()
@@ -248,6 +259,8 @@ def main():
 
     if args.auto:
         args.until = drop_window_end()
+    if args.no_search:
+        CONFIG["lazada"] = []
 
     state = load_state()
     check_pages(state)

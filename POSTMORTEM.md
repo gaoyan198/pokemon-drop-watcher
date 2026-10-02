@@ -19,7 +19,10 @@ On Oct 2, every Lazada check from 12:39 onwards was refused with a captcha page.
 | 13:01 | The pinned-item heartbeat showed "NOT FOUND", and the owner flagged it. |
 | 13:02 | Logs confirmed the watcher had been blind since 12:39. A single check at 13:05 was still blocked. |
 | 13:06 | Product pages (`/products/pdp-i<id>.html`) found to load fine, with stock in `"quantity":{"limit":{"max":N}}`. |
-| 13:08 | Product-page checks and loud BLIND alerts deployed. |
+| 13:08 | Product-page checks and loud BLIND alerts deployed to GitHub. Its first check sent 🔴 BLIND: GitHub's servers are blocked from product pages too. |
+| 13:09 | A check from the Mac read "in stock". The owner was told to buy, clicked immediately, and saw "Out of stock". |
+| 13:11 | Found that about 1 in 4 product-page responses is a **stale cached copy** (`"max":5`, Add to Cart, no "Out of stock"). The 13:09 "in stock" was almost certainly one of these: a **false alert**. Adding a unique parameter to each request didn't avoid it. |
+| 13:12 | "In stock" now requires 3 fetches in a row to agree. 12/12 live checks then correctly read "sold out". |
 
 ## Root causes
 
@@ -28,7 +31,8 @@ On Oct 2, every Lazada check from 12:39 onwards was refused with a captcha page.
 3. **Verification checked the process, not the result.** "The run is still in progress" was treated as "it's checking." No one confirmed that a check had returned real data.
 4. **Early warning ignored.** The 12:35 captcha on the Mac was a sign the endpoint was being blocked. It was explained away rather than checked against GitHub's latest results.
 5. **Changes under pressure aimed at the wrong problem.** Four deploys tuned speed and coverage while nothing was getting through at all.
-6. **GitHub's scheduler is unreliable.** One drop-time trigger was skipped entirely on Oct 1. (Fixed on Oct 2 with six triggers across 12:17–13:32.)
+6. **One reading from a cached page was trusted.** Lazada's edge servers sometimes return a stale page, and a single in-stock reading was sent to the owner as "buy now" without being confirmed.
+7. **GitHub's scheduler is unreliable.** One drop-time trigger was skipped entirely on Oct 1. (Fixed on Oct 2 with six triggers across 12:17–13:32.)
 
 ## What we changed
 
@@ -45,9 +49,11 @@ On Oct 2, every Lazada check from 12:39 onwards was refused with a captcha page.
 4. **Any captcha or block anywhere is treated as an incident** until the production host is checked.
 5. **During a live drop, the owner hears first:** "the watcher is blind, check manually." Fixes come after that.
 6. **Keep a second data source** so one blocked endpoint doesn't take out everything.
+7. **Confirm before saying "buy".** A single reading can be a stale cached copy; require repeated agreeing reads before alerting.
 
 ## Still open
 
-- Whether product pages stay open from GitHub's servers under drop-time load. If they get blocked too, move polling to a home connection (the owner's Mac during 12:30–14:00) or a real browser engine.
+- **GitHub's servers can't read Lazada at all right now** (search and product pages are both blocked). Polling has to move to a home connection: the owner's Mac during 12:30–14:00, run by a scheduled job on the Mac with the Telegram details stored locally.
+- The 3-in-a-row confirmation hasn't been tested against a real restock. It's unknown whether a fresh in-stock page looks different from the stale copy.
 - Why the search endpoint started refusing requests on the morning of Oct 2.
 - Store searches can't find brand-new listings while they're blocked. Pin new product IDs in `watch_items` once they're known.
