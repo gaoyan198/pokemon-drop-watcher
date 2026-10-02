@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.pokewatch.sweep</string>
+  <key>ProgramArguments</key><array><string>/Users/gaoyantong/pokewatch/run-local.sh</string><string>sweep</string></array>
+  <key>StartInterval</key><integer>900</integer>
+  <key>StandardOutPath</key><string>/Users/gaoyantong/pokewatch/logs/sweep.log</string>
+  <key>StandardErrorPath</key><string>/Users/gaoyantong/pokewatch/logs/sweep.log</string>
+</dict></plist>

@@ -1,13 +1,8 @@
 name: pokemon-watch
 
 on:
-  schedule:
-    # Weekday drop window is 13:00-14:00 SGT. GitHub often delays or silently skips
-    # scheduled runs, so fire several; whichever starts first inside the window
-    # (config.json drop_window) polls until 14:00, later ones queue and just sweep once.
-    - cron: "17,32,47 4 * * 1-5"   # 12:17 / 12:32 / 12:47 SGT
-    - cron: "2,17,32 5 * * 1-5"    # 13:02 / 13:17 / 13:32 SGT
-    - cron: "23 */2 * * *"         # every 2h: sweep for off-schedule restocks + Jewel announcements
+  # Scheduled runs are off: since 2026-10-02 Lazada blocks GitHub's servers (see POSTMORTEM.md).
+  # The watcher now runs from the Mac via launchd/ (run-local.sh). Manual runs still work.
   workflow_dispatch:
     inputs:
       mode:

@@ -1,8 +1,9 @@
 {
   "timezone": "Asia/Singapore",
-  "interval_s": 10,
-  "max_interval_s": 60,
-  "drop_window": { "weekdays": [0, 1, 2, 3, 4], "start": "12:15", "end": "14:00" },
+  "interval_s": 45,
+  "max_interval_s": 300,
+  "drop_window": { "weekdays": [0, 1, 2, 3, 4], "start": "12:45", "drop": "13:00", "end": "14:00" },
+  "remind_at": "12:55",
 
   "watch_items": ["13858018841"],
 

@@ -53,7 +53,8 @@ def telegram(text, button=None, silent=False):
     payload = {"chat_id": chat, "text": text, "parse_mode": "HTML",
                "disable_web_page_preview": False, "disable_notification": silent}
     if button:
-        payload["reply_markup"] = json.dumps({"inline_keyboard": [[{"text": button[0], "url": button[1]}]]})
+        buttons = button if isinstance(button, list) else [button]
+        payload["reply_markup"] = json.dumps({"inline_keyboard": [[{"text": t, "url": u}] for t, u in buttons]})
     data = urllib.parse.urlencode(payload).encode()
     try:
         with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage",
@@ -288,7 +289,13 @@ def main():
                 blind_alerted = time.time()
         # Back off when Lazada blocks us (double, capped), ease back toward the base rate once it recovers.
         cur, cap, n = interval, CONFIG.get("max_interval_s", 60), 0
+        remind_at, reminded = CONFIG.get("remind_at"), False
         while datetime.now(TZ) < end:
+            if remind_at and not reminded and f"{datetime.now(TZ):%H:%M}" >= remind_at:
+                reminded = True
+                telegram(f"⏰ <b>Drop at {CONFIG['drop_window'].get('drop', '13:00')}</b>: open the page now "
+                         f"and refresh from a minute before. Buy Now, not Add to Cart.{status_lines(results)}",
+                         [("Open in Lazada ⚡", f"https://www.lazada.sg/products/pdp-i{i}.html") for i in pinned])
             time.sleep(cur + random.uniform(0, cur * 0.25))
             n += 1
             results = check_products(state)
@@ -307,6 +314,13 @@ def main():
             if cur != prev:
                 log(f"interval {prev:g}s -> {cur:g}s")
             STATE_FILE.write_text(json.dumps(state, indent=1))
+
+    if not args.until:
+        if ever_ok:
+            state.get("warned", {}).pop("blind", None)
+        else:
+            warn_once(state, "blind", "🔴 <b>BLIND</b>: restock sweep can't read Lazada. Will keep retrying.")
+        STATE_FILE.write_text(json.dumps(state, indent=1))
 
     if not ever_ok:
         raise SystemExit("never got a successful check: Lazada is blocking us")
