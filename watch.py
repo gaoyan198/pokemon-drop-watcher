@@ -5,7 +5,8 @@ Stdlib only, built to run inside GitHub Actions. State (what was in stock / alre
 seen) lives in state.json, which the workflow carries between runs via actions/cache.
 
   python watch.py                  # one pass over everything
-  python watch.py --until 13:25    # poll Lazada every `interval_s` until 13:25 local
+  python watch.py --until 14:00    # poll Lazada every `interval_s` until 14:00 local
+  python watch.py --auto           # inside `drop_window`: poll until it ends; else one pass
   python watch.py --test           # send a test Telegram message
   python watch.py --demo           # dry run: send one sample of every alert type
 """
@@ -17,6 +18,7 @@ import os
 import random
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -43,17 +45,22 @@ def fetch(url, accept="application/json"):
 
 # ---------- telegram ----------
 
-def telegram(text, button=None):
+def telegram(text, button=None, silent=False):
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not (token and chat):
         log(f"(no telegram creds) {text}")
         return
-    payload = {"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}
+    payload = {"chat_id": chat, "text": text, "parse_mode": "HTML",
+               "disable_web_page_preview": False, "disable_notification": silent}
     if button:
         payload["reply_markup"] = json.dumps({"inline_keyboard": [[{"text": button[0], "url": button[1]}]]})
     data = urllib.parse.urlencode(payload).encode()
     try:
-        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=15)
+        with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage",
+                                    data=data, timeout=15) as r:
+            log(f"telegram sent (message_id={json.loads(r.read())['result']['message_id']})")
+    except urllib.error.HTTPError as e:
+        log(f"telegram failed: {e} {e.read().decode('utf-8', 'replace')}")
     except Exception as e:  # noqa: BLE001 - a failed alert must not kill the loop
         log(f"telegram failed: {e}")
 
@@ -159,9 +166,19 @@ def load_state():
         return {}
 
 
+def drop_window_end():
+    """End time (HH:MM) if we're inside today's drop window, else None."""
+    win = CONFIG.get("drop_window")
+    now = datetime.now(TZ)
+    if not win or now.weekday() not in win["weekdays"]:
+        return None
+    return win["end"] if win["start"] <= f"{now:%H:%M}" < win["end"] else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--until", help="keep polling Lazada until HH:MM local time")
+    ap.add_argument("--auto", action="store_true", help="poll until drop_window ends if inside it")
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--demo", action="store_true")
     args = ap.parse_args()
@@ -175,6 +192,9 @@ def main():
         demo()
         return
 
+    if args.auto:
+        args.until = drop_window_end()
+
     state = load_state()
     check_pages(state)
     check_lazada(state)
@@ -185,6 +205,8 @@ def main():
         h, m = map(int, args.until.split(":"))
         end = datetime.now(TZ).replace(hour=h, minute=m, second=0, microsecond=0)
         interval = CONFIG.get("interval_s", 20)
+        if datetime.now(TZ) < end:
+            telegram(f"👀 Watching Lazada every ~{interval}s until {args.until}", silent=True)
         while datetime.now(TZ) < end:
             time.sleep(interval + random.uniform(0, interval * 0.25))
             check_lazada(state)

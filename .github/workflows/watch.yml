@@ -2,12 +2,16 @@ name: pokemon-watch
 
 on:
   schedule:
-    - cron: "40 4 * * *"    # 12:40 SGT: start the lunchtime drop loop (GitHub cron can lag 5-15 min)
-    - cron: "0 */2 * * *"   # every 2h: quick sweep for off-schedule restocks + Jewel announcements
+    # Weekday drop window is 13:00-14:00 SGT. GitHub often delays or silently skips
+    # scheduled runs, so fire several; whichever starts first inside the window
+    # (config.json drop_window) polls until 14:00, later ones queue and just sweep once.
+    - cron: "17,32,47 4 * * 1-5"   # 12:17 / 12:32 / 12:47 SGT
+    - cron: "2,17,32 5 * * 1-5"    # 13:02 / 13:17 / 13:32 SGT
+    - cron: "23 */2 * * *"         # every 2h: sweep for off-schedule restocks + Jewel announcements
   workflow_dispatch:
     inputs:
       mode:
-        description: "once | drop | test | demo"
+        description: "once | auto | drop | test | demo"
         default: once
 
 concurrency:
@@ -17,7 +21,7 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -37,13 +41,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MODE="${{ inputs.mode }}"
-          if [ "${{ github.event.schedule }}" = "40 4 * * *" ]; then MODE=drop; fi
-          case "$MODE" in
+          case "${{ inputs.mode || 'auto' }}" in
             test) python watch.py --test ;;
             demo) python watch.py --demo ;;
-            drop) python watch.py --until 13:25 ;;
-            *)    python watch.py ;;
+            drop) python watch.py --until 14:00 ;;
+            once) python watch.py ;;
+            *)    python watch.py --auto ;;
           esac
 
       - name: Save state
